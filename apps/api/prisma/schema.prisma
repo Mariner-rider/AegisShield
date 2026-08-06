@@ -7,39 +7,114 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-model Organization {
-  id            String         @id @default(cuid())
-  name          String
-  slug          String         @unique
-  tenants       Tenant[]
-  subscriptions Subscription[]
-  users         User[]
-  createdAt     DateTime       @default(now())
-}
+enum AlertSeverity { LOW MEDIUM HIGH CRITICAL }
+enum ResponseStatus { PENDING APPROVED DENIED EXECUTED FAILED }
+enum SubscriptionStatus { TRIAL ACTIVE PAST_DUE CANCELED }
 
 model Tenant {
-  id              String          @id @default(cuid())
-  name            String
-  tenantKey       String          @unique
-  organizationId  String
-  organization    Organization    @relation(fields: [organizationId], references: [id])
-  projects        Project[]
-  apiKeys         ApiKey[]
-  detectionEvents DetectionEvent[]
-  alerts          Alert[]
-  responseActions ResponseAction[]
-  auditLogs       AuditLog[]
-  policyBundles   PolicyBundle[]
-  createdAt       DateTime        @default(now())
+  id            String          @id @default(cuid())
+  name          String
+  tenantKey     String          @unique
+  createdAt     DateTime        @default(now())
+  users         User[]
+  apiKeys       ApiKey[]
+  detections    DetectionEvent[]
+  alerts        Alert[]
+  responses     ResponseAction[]
+  auditLogs     AuditLog[]
+  policyBundles PolicyBundle[]
+  subscription  Subscription?
 }
 
-model Project { id String @id @default(cuid()) tenantId String name String slug String tenant Tenant @relation(fields:[tenantId], references:[id]) environments Environment[] createdAt DateTime @default(now()) }
-model Environment { id String @id @default(cuid()) projectId String type String name String project Project @relation(fields:[projectId], references:[id]) createdAt DateTime @default(now()) }
-model User { id String @id @default(cuid()) organizationId String email String @unique fullName String passwordHash String role String organization Organization @relation(fields:[organizationId], references:[id]) createdAt DateTime @default(now()) }
-model ApiKey { id String @id @default(cuid()) tenantId String label String keyPrefix String secretHash String revokedAt DateTime? tenant Tenant @relation(fields:[tenantId], references:[id]) createdAt DateTime @default(now()) }
-model DetectionEvent { id String @id @default(cuid()) tenantId String type String severity Int payload Json tenant Tenant @relation(fields:[tenantId], references:[id]) createdAt DateTime @default(now()) }
-model Alert { id String @id @default(cuid()) tenantId String ruleId String severity Int status String tenant Tenant @relation(fields:[tenantId], references:[id]) createdAt DateTime @default(now()) }
-model ResponseAction { id String @id @default(cuid()) tenantId String actionType String status String tenant Tenant @relation(fields:[tenantId], references:[id]) createdAt DateTime @default(now()) }
-model AuditLog { id String @id @default(cuid()) tenantId String actor String action String metadata Json tenant Tenant @relation(fields:[tenantId], references:[id]) createdAt DateTime @default(now()) }
-model PolicyBundle { id String @id @default(cuid()) tenantId String version String signature String tenant Tenant @relation(fields:[tenantId], references:[id]) createdAt DateTime @default(now()) }
-model Subscription { id String @id @default(cuid()) organizationId String plan String status String graceUntil DateTime? organization Organization @relation(fields:[organizationId], references:[id]) createdAt DateTime @default(now()) }
+model User {
+  id           String    @id @default(cuid())
+  tenantId     String
+  email        String    @unique
+  fullName     String
+  passwordHash String
+  role         String    @default("owner")
+  createdAt    DateTime  @default(now())
+  tenant       Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  apiKeys      ApiKey[]  @relation("ApiKeyCreator")
+}
+
+model ApiKey {
+  id         String    @id @default(cuid())
+  tenantId    String
+  createdById String
+  label      String
+  keyPrefix  String
+  secretHash String
+  revokedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  tenant     Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdBy  User      @relation("ApiKeyCreator", fields: [createdById], references: [id])
+}
+
+model DetectionEvent {
+  id          String    @id @default(cuid())
+  tenantId    String
+  source      String
+  eventType   String
+  severity    AlertSeverity
+  payload     Json
+  detectedAt  DateTime  @default(now())
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Alert {
+  id          String    @id @default(cuid())
+  tenantId    String
+  title       String
+  severity    AlertSeverity
+  status      String    @default("open")
+  detectionId String?
+  createdAt   DateTime  @default(now())
+  tenant      Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model ResponseAction {
+  id          String         @id @default(cuid())
+  tenantId    String
+  alertId     String?
+  actionType  String
+  status      ResponseStatus @default(PENDING)
+  requestedBy String
+  createdAt   DateTime       @default(now())
+  tenant      Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id          String   @id @default(cuid())
+  tenantId    String
+  actor       String
+  action      String
+  targetType  String
+  targetId    String
+  metadata    Json?
+  immutableHash String
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model PolicyBundle {
+  id          String   @id @default(cuid())
+  tenantId    String
+  name        String
+  version     String
+  rules       Json
+  isActive    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
+
+model Subscription {
+  id          String             @id @default(cuid())
+  tenantId    String             @unique
+  plan        String
+  status      SubscriptionStatus @default(TRIAL)
+  startsAt    DateTime
+  endsAt      DateTime?
+  createdAt   DateTime           @default(now())
+  tenant      Tenant             @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+}
